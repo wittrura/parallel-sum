@@ -14,6 +14,14 @@ func Sum(nums []int) int {
 }
 
 func ParallelSum(nums []int, workers int) int {
+	if len(nums) == 0 {
+		return 0
+	}
+
+	if workers < 1 {
+		workers = 1
+	}
+
 	chunks := Chunk(nums, workers)
 	numJobs := len(chunks)
 
