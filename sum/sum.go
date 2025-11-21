@@ -16,43 +16,8 @@ func Sum(nums []int) int {
 }
 
 func ParallelSum(nums []int, workers int) int {
-	if len(nums) == 0 {
-		return 0
-	}
-
-	if workers < 1 {
-		workers = 1
-	} else if workers > len(nums) {
-		workers = len(nums)
-	}
-
-	chunks := Chunk(nums, workers)
-	numJobs := len(chunks)
-
-	jobs := make(chan []int, numJobs)
-	results := make(chan int, numJobs)
-
-	for range workers {
-		go worker(jobs, results)
-	}
-
-	for _, chunk := range chunks {
-		jobs <- chunk
-	}
-	close(jobs)
-
-	result := 0
-	for i := 1; i <= numJobs; i++ {
-		temp := <-results
-		result += temp
-	}
+	result, _ := ParallelSumCtx(context.Background(), nums, workers, nil)
 	return result
-}
-
-func worker(jobs <-chan []int, results chan<- int) {
-	job := <-jobs
-	sum := Sum(job)
-	results <- sum
 }
 
 func Chunk(nums []int, chunks int) [][]int {
@@ -96,7 +61,7 @@ func ParallelSumCtx(ctx context.Context, nums []int, workers int, beforeProcessi
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for range workers {
-		go workerCtx(ctx, &wg, jobs, results, beforeProcessing)
+		go worker(ctx, &wg, jobs, results, beforeProcessing)
 	}
 
 	// Close results once all workers are done.
@@ -132,7 +97,7 @@ func ParallelSumCtx(ctx context.Context, nums []int, workers int, beforeProcessi
 	}
 }
 
-func workerCtx(ctx context.Context, wg *sync.WaitGroup, jobs <-chan []int, results chan<- int, beforeProcessing func()) {
+func worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan []int, results chan<- int, beforeProcessing func()) {
 	defer wg.Done()
 
 	select {
