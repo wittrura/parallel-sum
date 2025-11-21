@@ -1,8 +1,10 @@
 package sum_test
 
 import (
+	"context"
 	"strconv"
 	"testing"
+	"time"
 
 	. "example.com/parallel-sum/sum"
 )
@@ -221,7 +223,6 @@ func TestParallelSum_EdgeCases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -267,6 +268,151 @@ func FuzzParallelSum_MatchesSequential(f *testing.F) {
 // workersSubtestName is a tiny helper to keep subtest names readable.
 func workersSubtestName(workers int) string {
 	return "workers_" + strconv.Itoa(workers)
+}
+
+// Test that when the context is healthy, ParallelSumCtx behaves exactly like ParallelSum.
+func TestParallelSumCtx_HappyPath_MatchesParallelSum(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name    string
+		nums    []int
+		workers int
+	}
+
+	tests := []testCase{
+		{
+			name:    "empty_slice_workers_1",
+			nums:    []int{},
+			workers: 1,
+		},
+		{
+			name:    "nil_slice_workers_4",
+			nums:    nil,
+			workers: 4,
+		},
+		{
+			name:    "small_slice_workers_1",
+			nums:    []int{1, 2, 3, 4, 5},
+			workers: 1,
+		},
+		{
+			name:    "small_slice_workers_2",
+			nums:    []int{1, 2, 3, 4, 5},
+			workers: 2,
+		},
+		{
+			name:    "small_slice_workers_greater_than_len",
+			nums:    []int{1, 2, 3},
+			workers: 10,
+		},
+		{
+			name: "larger_slice_workers_4",
+			nums: func() []int {
+				nums := make([]int, 10_000)
+				for i := range nums {
+					nums[i] = i + 1
+				}
+				return nums
+			}(),
+			workers: 4,
+		},
+		{
+			name:    "workers_zero_treated_like_parallel_sum",
+			nums:    []int{10, 20, 30},
+			workers: 0,
+		},
+		{
+			name:    "workers_negative_treated_like_parallel_sum",
+			nums:    []int{10, 20, 30},
+			workers: -3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+
+			want := Sum(tt.nums)
+
+			got, err := ParallelSumCtx(ctx, tt.nums, tt.workers, nil)
+			if err != nil {
+				t.Fatalf("ParallelSumCtx returned unexpected error: %v", err)
+			}
+
+			if got != want {
+				t.Fatalf("ParallelSumCtx(nums=%v, workers=%d) = %d, want %d",
+					tt.nums, tt.workers, got, want)
+			}
+		})
+	}
+}
+
+// Test that if the context is already canceled before calling, we return ctx.Err()
+// and do not attempt to compute or hang.
+func TestParallelSumCtx_CanceledContextBeforeCall(t *testing.T) {
+	t.Parallel()
+
+	nums := func() []int {
+		nums := make([]int, 10_000)
+		for i := range nums {
+			nums[i] = i + 1
+		}
+		return nums
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before calling
+
+	got, err := ParallelSumCtx(ctx, nums, 4, nil)
+	if err == nil {
+		t.Fatalf("ParallelSumCtx with pre-canceled context: expected error, got nil")
+	}
+
+	if err != context.Canceled {
+		t.Fatalf("ParallelSumCtx error = %v, want %v", err, context.Canceled)
+	}
+
+	if got != 0 {
+		t.Fatalf("ParallelSumCtx with canceled context returned sum=%d, want 0", got)
+	}
+}
+
+// This test asserts that ParallelSumCtx can be canceled while work is in progress,
+// not just before it starts. We use a small test hook (testHookWorkerDelay)
+// to slow down the workers and trigger cancellation deterministically.
+func TestParallelSumCtx_CancelsMidFlight(t *testing.T) {
+	t.Parallel()
+
+	// Build a reasonably large slice so there is real work to do.
+	nums := make([]int, 1_000_000)
+	for i := range nums {
+		nums[i] = 1
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Install a test hook that simulates a slow worker and triggers cancellation.
+	// You will need to call testHookWorkerDelay() from inside your worker function.
+	testHookWorkerDelay := func() {
+		// Sleep a bit to ensure "in progress", then cancel.
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}
+
+	got, err := ParallelSumCtx(ctx, nums, 4, testHookWorkerDelay)
+	if err == nil {
+		t.Fatalf("ParallelSumCtx: expected error due to mid-flight cancellation, got nil")
+	}
+	if err != context.Canceled {
+		t.Fatalf("ParallelSumCtx error = %v, want %v", err, context.Canceled)
+	}
+	if got != 0 {
+		t.Fatalf("ParallelSumCtx sum = %d, want 0 when canceled", got)
+	}
 }
 
 func TestChunk(t *testing.T) {
