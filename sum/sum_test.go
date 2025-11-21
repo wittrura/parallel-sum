@@ -234,6 +234,36 @@ func TestParallelSum_EdgeCases(t *testing.T) {
 	}
 }
 
+func FuzzParallelSum_MatchesSequential(f *testing.F) {
+	// Seed fuzz cases using []byte → converted to []int inside the fuzzer.
+	f.Add([]byte{}, 0)
+	f.Add([]byte{1}, 1)
+	f.Add([]byte{1, 2, 3, 4, 5}, 2)
+	f.Add([]byte{10, 200, 30, 4}, 4)
+
+	f.Fuzz(func(t *testing.T, bnums []byte, workers int) {
+		// Convert []byte → []int to approximate arbitrary slices.
+		nums := make([]int, len(bnums))
+		for i, b := range bnums {
+			// Keep values small and stable to avoid overflow.
+			nums[i] = int(b)
+		}
+
+		// Clamp to prevent pathological runs.
+		if len(nums) > 10_000 {
+			nums = nums[:10_000]
+		}
+
+		want := Sum(nums)
+		got := ParallelSum(nums, workers)
+
+		if got != want {
+			t.Fatalf("ParallelSum(nums=%v, workers=%d) = %d, want %d",
+				nums, workers, got, want)
+		}
+	})
+}
+
 // workersSubtestName is a tiny helper to keep subtest names readable.
 func workersSubtestName(workers int) string {
 	return "workers_" + strconv.Itoa(workers)
