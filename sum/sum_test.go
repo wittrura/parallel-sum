@@ -455,7 +455,7 @@ func TestChunk(t *testing.T) {
 
 			got := Chunk(tt.input, tt.workers)
 			if !equal(got, tt.want) {
-				t.Fatalf("Chunk got %v, want %d", got, tt.want)
+				t.Fatalf("Chunk got %v, want %v", got, tt.want)
 			}
 		})
 	}
