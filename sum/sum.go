@@ -120,3 +120,43 @@ func worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan []int, results 
 		}
 	}
 }
+
+func ParallelSumPool(nums []int, workers int) int {
+	if len(nums) == 0 {
+		return 0
+	}
+
+	if workers < 1 {
+		workers = 1
+	}
+
+	worker := func(jobs <-chan []int, results chan<- int) {
+		for j := range jobs {
+			results <- Sum(j)
+		}
+	}
+
+	numJobs := (len(nums) + 1) / 2
+
+	jobs := make(chan []int, numJobs)
+	results := make(chan int, numJobs)
+
+	for range workers {
+		go worker(jobs, results)
+	}
+
+	for i := 0; i < len(nums); i += 2 {
+		if i+1 < len(nums) {
+			jobs <- []int{nums[i], nums[i+1]}
+		} else {
+			jobs <- []int{nums[i]}
+		}
+	}
+	close(jobs)
+
+	result := 0
+	for a := 1; a <= numJobs; a++ {
+		result += <-results
+	}
+	return result
+}

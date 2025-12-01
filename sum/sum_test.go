@@ -477,3 +477,162 @@ func equal(a, b [][]int) bool {
 	}
 	return true
 }
+
+func TestParallelSumPool_MatchesSequentialSum(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name    string
+		nums    []int
+		workers []int
+	}
+
+	tests := []testCase{
+		{
+			name:    "small_slice_various_workers",
+			nums:    []int{1, 2, 3, 4, 5},
+			workers: []int{1, 2, 3, 5, 10},
+		},
+		{
+			name:    "single_element",
+			nums:    []int{42},
+			workers: []int{1, 2, 4},
+		},
+		{
+			name: "moderate_size_slice",
+			nums: func() []int {
+				nums := make([]int, 1_000)
+				for i := range nums {
+					nums[i] = i + 1
+				}
+				return nums
+			}(),
+			workers: []int{1, 2, 4, 8},
+		},
+		{
+			name: "large_slice",
+			nums: func() []int {
+				nums := make([]int, 100_000)
+				for i := range nums {
+					nums[i] = 1
+				}
+				return nums
+			}(),
+			workers: []int{1, 2, 4, 8, 16},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			want := Sum(tt.nums)
+
+			for _, w := range tt.workers {
+				w := w
+				t.Run(workersSubtestName(w), func(t *testing.T) {
+					t.Parallel()
+
+					got := ParallelSumPool(tt.nums, w)
+					if got != want {
+						t.Fatalf("ParallelSumPool(nums, workers=%d) = %d, want %d", w, got, want)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestParallelSumPool_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		nums    []int
+		workers int
+	}
+
+	tests := []struct {
+		name string
+		args args
+		want int
+	}{
+		{
+			name: "empty_slice_workers_1",
+			args: args{
+				nums:    []int{},
+				workers: 1,
+			},
+			want: 0,
+		},
+		{
+			name: "empty_slice_workers_greater_than_len",
+			args: args{
+				nums:    []int{},
+				workers: 8,
+			},
+			want: 0,
+		},
+		{
+			name: "nil_slice_workers_positive",
+			args: args{
+				nums:    nil,
+				workers: 4,
+			},
+			want: 0,
+		},
+		{
+			name: "nil_slice_workers_zero",
+			args: args{
+				nums:    nil,
+				workers: 0,
+			},
+			want: 0,
+		},
+		{
+			name: "non_empty_workers_zero_treated_as_one",
+			args: args{
+				nums:    []int{1, 2, 3, 4, 5},
+				workers: 0,
+			},
+			want: Sum([]int{1, 2, 3, 4, 5}),
+		},
+		{
+			name: "non_empty_workers_negative_treated_as_one",
+			args: args{
+				nums:    []int{10, 20, 30},
+				workers: -3,
+			},
+			want: Sum([]int{10, 20, 30}),
+		},
+		{
+			name: "workers_greater_than_length_still_correct",
+			args: args{
+				nums:    []int{1, 2, 3},
+				workers: 10,
+			},
+			want: Sum([]int{1, 2, 3}),
+		},
+		{
+			name: "workers_equal_length",
+			args: args{
+				nums:    []int{5, 5, 5, 5},
+				workers: 4,
+			},
+			want: Sum([]int{5, 5, 5, 5}),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ParallelSumPool(tt.args.nums, tt.args.workers)
+			if got != tt.want {
+				t.Fatalf("ParallelSumPool(nums=%v, workers=%d) = %d, want %d",
+					tt.args.nums, tt.args.workers, got, tt.want)
+			}
+		})
+	}
+}
